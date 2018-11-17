@@ -1,0 +1,51 @@
+---
+- name: ensure email address is defined
+  fail:
+    msg: "certbot_email_address needs to be defined to accept letsencrypt TOS"
+  when: certbot_email_address is not defined
+- name: ensure TOS were read and accepted
+  fail:
+    msg: "You need to read and accept the letsencrypt TOS"
+  when: certbot_accept_tos is not defined or not certbot_accept_tos
+- name: ensure domains to register are defined
+  fail:
+    msg: "certbot_domains needs to be defined"
+  when: certbot_domains is not defined
+- name: ensure latest certbot apache plugin is installed
+  apt:
+    name: python-certbot-apache
+    state: latest
+- name: request letsencrypt certificates
+  command: "certbot certonly --standalone --non-interactive \
+            --pre-hook 'systemctl stop apache2' \
+            --post-hook 'systemctl start apache2' \
+            -m {{ certbot_email_address }} \
+            --agree-tos -d {{ certbot_domains | join(',') }}"
+- name: make sure run-parts is available and up-to-date
+  apt: name=debianutils state=latest
+- name: copy certbot renewal hook
+  copy:
+    src: certbot-renewal-hook.sh
+    dest: /usr/local/bin/certbot-renewal-hook.sh
+    owner: root
+    group: root
+    mode: 'u=rwx,g=rx,o=rx'
+- name: create certbot renewal hooks directory
+  file:
+    path: /usr/local/bin/certbot-renewal-hooks.d
+    state: directory
+    owner: root
+    group: root
+- name: upload modified certbot unit file that calls our renewal hook
+  copy:
+    src: certbot.service
+    dest: /lib/systemd/system/certbot.service
+    owner: root
+    group: root
+    mode: u=rw,g=r,o=r
+- name: enable renewal hook timer
+  systemd:
+    name: certbot.timer
+    enabled: yes
+    state: started
+    daemon_reload: yes
